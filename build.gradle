@@ -49,6 +49,26 @@ subprojects {
     sourceCompatibility = 1.6
     targetCompatibility = 1.6
 
+    def javaExecutablesPath = new File('/usr/lib/jvm/java-1.6.0-openjdk-amd64', 'bin')
+    def javaExecutables = [:].withDefault { execName ->
+        def executable = new File(javaExecutablesPath, execName)
+        assert executable.exists() : "There is no ${execName} executable in ${javaExecutablesPath}"
+        executable
+    }
+    tasks.withType(AbstractCompile) {
+        options.with {
+            fork = true
+            forkOptions.javaHome = file('/usr/lib/jvm/java-1.6.0-openjdk-amd64')
+        }
+    }
+
+    tasks.withType(Test) {
+        executable = javaExecutables.java
+    }
+    tasks.withType(JavaExec) {
+        executable = javaExecutables.java
+    }
+
     repositories {
         mavenCentral()
         mavenLocal()
@@ -183,7 +203,7 @@ subprojects {
                 google_api_protos: 'com.google.api.grpc:proto-google-common-protos:0.1.9',
                 google_auth_credentials: 'com.google.auth:google-auth-library-credentials:0.4.0',
                 okhttp: 'com.squareup.okhttp:okhttp:2.5.0',
-                okio: 'com.squareup.okio:okio:1.6.0',
+                okio: 'com.squareup.okio:okio:1.6.0:sources',
                 instrumentation_api: 'com.google.instrumentation:instrumentation-api:0.4.3',
                 protobuf: "com.google.protobuf:protobuf-java:${protobufVersion}",
                 protobuf_lite: "com.google.protobuf:protobuf-lite:3.0.1",
