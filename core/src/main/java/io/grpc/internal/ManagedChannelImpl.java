@@ -32,9 +32,11 @@ import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.ClientInterceptor;
 import io.grpc.ClientInterceptors;
+import io.grpc.Compressor;
 import io.grpc.CompressorRegistry;
 import io.grpc.ConnectivityState;
 import io.grpc.ConnectivityStateInfo;
+import io.grpc.Context;
 import io.grpc.DecompressorRegistry;
 import io.grpc.EquivalentAddressGroup;
 import io.grpc.LoadBalancer;
@@ -42,10 +44,11 @@ import io.grpc.LoadBalancer.PickResult;
 import io.grpc.LoadBalancer.PickSubchannelArgs;
 import io.grpc.LoadBalancer.SubchannelPicker;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.NameResolver;
 import io.grpc.Status;
-import io.grpc.internal.ClientCallImpl.ClientTransportProvider;
+import io.grpc.internal.ClientCallImpl.AbstractClientStreamProvider;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -324,43 +327,63 @@ public final class ManagedChannelImpl extends ManagedChannel implements WithLogI
         idleTimeoutMillis, TimeUnit.MILLISECONDS);
   }
 
-  private final ClientTransportProvider transportProvider = new ClientTransportProvider() {
+  private final ClientStreamProvider clientStreamProvider = new ClientStreamProvider();
+
+  private final class ClientStreamProvider extends AbstractClientStreamProvider {
+
     @Override
-    public ClientTransport get(PickSubchannelArgs args) {
+    <ReqT, RespT> ClientStream pickTransportAndStartStream(
+        PickSubchannelArgs args, MethodDescriptor<ReqT, RespT> method, Metadata headers,
+        CallOptions callOptions, Context context, ClientStreamListener clientStreamListener,
+        Compressor compressor, DecompressorRegistry decompressorRegistry) {
+
+      ClientTransport transport = pickTransport(args);
+      ClientStream stream = startStream(
+          transport, method, headers, callOptions, context, clientStreamListener, compressor,
+          decompressorRegistry);
+
+      // TODO(zdapeng): unfreeze transport shutdown if it's frozen
+
+      return stream;
+    }
+
+    private ClientTransport pickTransport(PickSubchannelArgs args) {
       SubchannelPicker pickerCopy = subchannelPicker;
       if (shutdown.get()) {
         // If channel is shut down, delayedTransport is also shut down which will fail the stream
         // properly.
         return delayedTransport;
-      }
-      if (pickerCopy == null) {
+      } else if (pickerCopy == null) {
         channelExecutor.executeLater(new Runnable() {
-            @Override
-            public void run() {
-              exitIdleMode();
-            }
-          }).drain();
+          @Override
+          public void run() {
+            exitIdleMode();
+          }
+        }).drain();
         return delayedTransport;
-      }
-      // There is no need to reschedule the idle timer here.
-      //
-      // pickerCopy != null, which means idle timer has not expired when this method starts.
-      // Even if idle timer expires right after we grab pickerCopy, and it shuts down LoadBalancer
-      // which calls Subchannel.shutdown(), the InternalSubchannel will be actually shutdown after
-      // SUBCHANNEL_SHUTDOWN_DELAY_SECONDS, which gives the caller time to start RPC on it.
-      //
-      // In most cases the idle timer is scheduled to fire after the transport has created the
-      // stream, which would have reported in-use state to the channel that would have cancelled
-      // the idle timer.
-      PickResult pickResult = pickerCopy.pickSubchannel(args);
-      ClientTransport transport = GrpcUtil.getTransportFromPickResult(
-          pickResult, args.getCallOptions().isWaitForReady());
-      if (transport != null) {
+      } else {
+        // There is no need to reschedule the idle timer here.
+        //
+        // pickerCopy != null, which means idle timer has not expired when this method starts.
+        // Even if idle timer expires right after we grab pickerCopy, and it shuts down LoadBalancer
+        // which calls Subchannel.shutdown(), the InternalSubchannel will be actually shutdown after
+        // SUBCHANNEL_SHUTDOWN_DELAY_SECONDS, which gives the caller time to start RPC on it.
+        //
+        // In most cases the idle timer is scheduled to fire after the transport has created the
+        // stream, which would have reported in-use state to the channel that would have cancelled
+        // the idle timer.
+        PickResult pickResult = pickerCopy.pickSubchannel(args);
+        ClientTransport transport =
+            GrpcUtil.getTransportFromPickResult(pickResult, args.getCallOptions().isWaitForReady());
+        // TODO(zdapeng): freeze transport shutdown:
+        // if(!shutdownFreeze(transport)) { transport = delayedTransport; }
+        if (transport == null) {
+          transport = delayedTransport;
+        }
         return transport;
       }
-      return delayedTransport;
     }
-  };
+  }
 
   ManagedChannelImpl(
       AbstractManagedChannelImplBuilder<?> builder,
@@ -545,7 +568,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements WithLogI
           method,
           executor,
           callOptions,
-          transportProvider,
+          clientStreamProvider,
           terminated ? null : transportFactory.getScheduledExecutorService())
               .setDecompressorRegistry(decompressorRegistry)
               .setCompressorRegistry(compressorRegistry);

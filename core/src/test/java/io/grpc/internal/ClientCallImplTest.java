@@ -46,15 +46,17 @@ import io.grpc.CallOptions;
 import io.grpc.ClientCall;
 import io.grpc.ClientStreamTracer;
 import io.grpc.Codec;
+import io.grpc.Compressor;
 import io.grpc.Context;
 import io.grpc.Deadline;
 import io.grpc.Decompressor;
 import io.grpc.DecompressorRegistry;
+import io.grpc.LoadBalancer.PickSubchannelArgs;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.MethodDescriptor.MethodType;
 import io.grpc.Status;
-import io.grpc.internal.ClientCallImpl.ClientTransportProvider;
+import io.grpc.internal.ClientCallImpl.AbstractClientStreamProvider;
 import io.grpc.internal.testing.SingleMessageProducer;
 import io.grpc.testing.TestMethodDescriptors;
 import java.io.ByteArrayInputStream;
@@ -98,8 +100,6 @@ public class ClientCallImplTest {
       .setResponseMarshaller(TestMethodDescriptors.voidMarshaller())
       .build();
 
-  @Mock private ClientStreamListener streamListener;
-  @Mock private ClientTransport clientTransport;
   @Captor private ArgumentCaptor<Status> statusCaptor;
 
   @Mock
@@ -108,8 +108,17 @@ public class ClientCallImplTest {
   @Mock
   private ClientTransport transport;
 
-  @Mock
-  private ClientTransportProvider provider;
+  private AbstractClientStreamProvider provider = new AbstractClientStreamProvider() {
+    @Override
+    <ReqT, RespT> ClientStream pickTransportAndStartStream(PickSubchannelArgs args,
+        MethodDescriptor<ReqT, RespT> method, Metadata headers, CallOptions callOptions,
+        Context context, ClientStreamListener clientStreamListener, Compressor compressor,
+        DecompressorRegistry decompressorRegistry) {
+      return startStream(
+          transport, method, headers, callOptions, context, clientStreamListener, compressor,
+          decompressorRegistry);
+    }
+  };
 
   @Mock
   private ClientStream stream;
@@ -128,7 +137,6 @@ public class ClientCallImplTest {
   @Before
   public void setUp() {
     MockitoAnnotations.initMocks(this);
-    when(provider.get(any(PickSubchannelArgsImpl.class))).thenReturn(transport);
     when(transport.newStream(
             any(MethodDescriptor.class), any(Metadata.class), any(CallOptions.class)))
         .thenReturn(stream);
@@ -569,7 +577,6 @@ public class ClientCallImplTest {
         .newStream(any(MethodDescriptor.class), any(Metadata.class), any(CallOptions.class));
     verify(callListener, timeout(1000)).onClose(statusCaptor.capture(), any(Metadata.class));
     assertEquals(Status.Code.DEADLINE_EXCEEDED, statusCaptor.getValue().getCode());
-    verifyZeroInteractions(provider);
   }
 
   @Test

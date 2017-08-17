@@ -72,7 +72,7 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
   private volatile boolean cancelListenersShouldBeRemoved;
   private boolean cancelCalled;
   private boolean halfCloseCalled;
-  private final ClientTransportProvider clientTransportProvider;
+  private final AbstractClientStreamProvider clientStreamProvider;
   private final CancellationListener cancellationListener = new ContextCancellationListener();
   private ScheduledExecutorService deadlineCancellationExecutor;
   private DecompressorRegistry decompressorRegistry = DecompressorRegistry.getDefaultInstance();
@@ -80,7 +80,7 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
 
   ClientCallImpl(
       MethodDescriptor<ReqT, RespT> method, Executor executor, CallOptions callOptions,
-      ClientTransportProvider clientTransportProvider,
+      AbstractClientStreamProvider clientStreamProvider,
       ScheduledExecutorService deadlineCancellationExecutor) {
     this.method = method;
     // If we know that the executor is a direct executor, we don't need to wrap it with a
@@ -94,7 +94,7 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
     this.unaryRequest = method.getType() == MethodType.UNARY
         || method.getType() == MethodType.SERVER_STREAMING;
     this.callOptions = callOptions;
-    this.clientTransportProvider = clientTransportProvider;
+    this.clientStreamProvider = clientStreamProvider;
     this.deadlineCancellationExecutor = deadlineCancellationExecutor;
   }
 
@@ -115,6 +115,42 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
      * @param args object containing call arguments.
      */
     ClientTransport get(PickSubchannelArgs args);
+  }
+
+  abstract static class AbstractClientStreamProvider {
+
+    abstract <ReqT, RespT> ClientStream pickTransportAndStartStream(
+        PickSubchannelArgs args, MethodDescriptor<ReqT, RespT> method, Metadata headers,
+        CallOptions callOptions, Context context, ClientStreamListener clientStreamListener,
+        Compressor compressor, DecompressorRegistry decompressorRegistry);
+
+    final <ReqT, RespT> ClientStream startStream(
+        ClientTransport transport, MethodDescriptor<ReqT, RespT> method, Metadata headers,
+        CallOptions callOptions, Context context, ClientStreamListener clientStreamListener,
+        Compressor compressor, DecompressorRegistry decompressorRegistry) {
+      ClientStream stream;
+      Context origContext = context.attach();
+      try {
+        stream = transport.newStream(method, headers, callOptions);
+      } finally {
+        context.detach(origContext);
+      }
+
+      if (callOptions.getAuthority() != null) {
+        stream.setAuthority(callOptions.getAuthority());
+      }
+      if (callOptions.getMaxInboundMessageSize() != null) {
+        stream.setMaxInboundMessageSize(callOptions.getMaxInboundMessageSize());
+      }
+      if (callOptions.getMaxOutboundMessageSize() != null) {
+        stream.setMaxOutboundMessageSize(callOptions.getMaxOutboundMessageSize());
+      }
+
+      stream.setCompressor(compressor);
+      stream.setDecompressorRegistry(decompressorRegistry);
+      stream.start(clientStreamListener);
+      return stream;
+    }
   }
 
   ClientCallImpl<ReqT, RespT> setDecompressorRegistry(DecompressorRegistry decompressorRegistry) {
@@ -168,7 +204,7 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
       return;
     }
     final String compressorName = callOptions.getCompressor();
-    Compressor compressor = null;
+    Compressor compressor;
     if (compressorName != null) {
       compressor = compressorRegistry.lookupCompressor(compressorName);
       if (compressor == null) {
@@ -202,30 +238,13 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
     if (!deadlineExceeded) {
       updateTimeoutHeaders(effectiveDeadline, callOptions.getDeadline(),
           context.getDeadline(), headers);
-      ClientTransport transport = clientTransportProvider.get(
-          new PickSubchannelArgsImpl(method, headers, callOptions));
-      Context origContext = context.attach();
-      try {
-        stream = transport.newStream(method, headers, callOptions);
-      } finally {
-        context.detach(origContext);
-      }
+      stream = clientStreamProvider.pickTransportAndStartStream(
+          new PickSubchannelArgsImpl(method, headers, callOptions), method, headers, callOptions,
+          context, new ClientStreamListenerImpl(observer), compressor, decompressorRegistry);
     } else {
       stream = new FailingClientStream(DEADLINE_EXCEEDED);
+      stream.start(new ClientStreamListenerImpl(observer));
     }
-
-    if (callOptions.getAuthority() != null) {
-      stream.setAuthority(callOptions.getAuthority());
-    }
-    if (callOptions.getMaxInboundMessageSize() != null) {
-      stream.setMaxInboundMessageSize(callOptions.getMaxInboundMessageSize());
-    }
-    if (callOptions.getMaxOutboundMessageSize() != null) {
-      stream.setMaxOutboundMessageSize(callOptions.getMaxOutboundMessageSize());
-    }
-    stream.setCompressor(compressor);
-    stream.setDecompressorRegistry(decompressorRegistry);
-    stream.start(new ClientStreamListenerImpl(observer));
 
     // Delay any sources of cancellation after start(), because most of the transports are broken if
     // they receive cancel before start. Issue #1343 has more details

@@ -21,16 +21,20 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import io.grpc.Attributes;
 import io.grpc.CallOptions;
 import io.grpc.ClientCall;
+import io.grpc.Compressor;
 import io.grpc.ConnectivityStateInfo;
+import io.grpc.Context;
+import io.grpc.DecompressorRegistry;
 import io.grpc.EquivalentAddressGroup;
 import io.grpc.LoadBalancer;
 import io.grpc.LoadBalancer.PickResult;
 import io.grpc.LoadBalancer.PickSubchannelArgs;
 import io.grpc.LoadBalancer.SubchannelPicker;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.Status;
-import io.grpc.internal.ClientCallImpl.ClientTransportProvider;
+import io.grpc.internal.ClientCallImpl.AbstractClientStreamProvider;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -60,15 +64,23 @@ final class OobChannel extends ManagedChannel implements WithLogId {
   private final CountDownLatch terminatedLatch = new CountDownLatch(1);
   private volatile boolean shutdown;
 
-  private final ClientTransportProvider transportProvider = new ClientTransportProvider() {
-    @Override
-    public ClientTransport get(PickSubchannelArgs args) {
-      // delayed transport's newStream() always acquires a lock, but concurrent performance doesn't
-      // matter here because OOB communication should be sparse, and it's not on application RPC's
-      // critical path.
-      return delayedTransport;
-    }
-  };
+  private final AbstractClientStreamProvider transportProvider =
+      new AbstractClientStreamProvider() {
+        @Override
+        <ReqT, RespT> ClientStream pickTransportAndStartStream(
+            PickSubchannelArgs args, MethodDescriptor<ReqT, RespT> method, Metadata headers,
+            CallOptions callOptions, Context context, ClientStreamListener clientStreamListener,
+            Compressor compressor, DecompressorRegistry decompressorRegistry) {
+          ClientStream stream =
+              startStream(
+                  delayedTransport, method, headers, callOptions, context, clientStreamListener,
+                  compressor, decompressorRegistry);
+
+          // TODO(zdapeng): unfreeze transport shutdown if it's frozen
+
+          return stream;
+        }
+      };
 
   OobChannel(
       String authority, ObjectPool<? extends Executor> executorPool,
