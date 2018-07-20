@@ -40,7 +40,7 @@ import java.io.InputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
+public final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
 
   private static final Logger log = Logger.getLogger(ServerCallImpl.class.getName());
 
@@ -64,7 +64,7 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
   private Compressor compressor;
   private boolean messageSent;
 
-  ServerCallImpl(ServerStream stream, MethodDescriptor<ReqT, RespT> method,
+  public ServerCallImpl(ServerStream stream, MethodDescriptor<ReqT, RespT> method,
       Metadata inboundHeaders, Context.CancellableContext context,
       DecompressorRegistry decompressorRegistry, CompressorRegistry compressorRegistry,
       CallTracer serverCallTracer) {
@@ -189,7 +189,7 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
     return cancelled;
   }
 
-  ServerStreamListener newServerStreamListener(ServerCall.Listener<ReqT> listener) {
+  public ServerStreamListener newServerStreamListener(ServerCall.Listener<ReqT> listener) {
     return new ServerStreamListenerImpl<ReqT>(this, listener, context);
   }
 

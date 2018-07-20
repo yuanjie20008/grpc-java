@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.Immutable;
 
 /**
  * The base class for server builders.
@@ -251,10 +252,14 @@ public abstract class AbstractServerImplBuilder<T extends AbstractServerImplBuil
         this,
         buildTransportServer(Collections.unmodifiableList(getTracerFactories())),
         Context.ROOT);
+    notifyOnBuild(server);
+    return server;
+  }
+
+  protected final void notifyOnBuild(Server server) {
     for (InternalNotifyOnServerBuild notifyTarget : notifyOnBuildList) {
       notifyTarget.notifyOnBuild(server);
     }
-    return server;
   }
 
   @VisibleForTesting
@@ -294,5 +299,37 @@ public abstract class AbstractServerImplBuilder<T extends AbstractServerImplBuil
     @SuppressWarnings("unchecked")
     T thisT = (T) this;
     return thisT;
+  }
+
+  /**
+   * Internal access to builder parameters.
+   */
+  @Immutable
+  public static final class Params {
+    public final HandlerRegistry handlerRegistry;
+    public final List<ServerTransportFilter> transportFilters;
+    public final List<ServerInterceptor> interceptors;
+    public final HandlerRegistry fallbackRegistry;
+    public final ObjectPool<? extends Executor> executorPool;
+    public final DecompressorRegistry decompressorRegistry;
+    public final CompressorRegistry compressorRegistry;
+    public final long handshakeTimeoutMillis;
+    public final boolean usingSharedExecutor;
+    public final BinaryLog binlog;
+    public final CallTracer.Factory callTracerFactory;
+
+    public Params(AbstractServerImplBuilder<?> builder) {
+      handlerRegistry = builder.registryBuilder.build();
+      transportFilters = builder.transportFilters;
+      interceptors = builder.interceptors;
+      fallbackRegistry = builder.fallbackRegistry;
+      executorPool = builder.executorPool;
+      decompressorRegistry = builder.decompressorRegistry;
+      compressorRegistry = builder.compressorRegistry;
+      handshakeTimeoutMillis = builder.handshakeTimeoutMillis;
+      usingSharedExecutor = builder.executorPool == DEFAULT_EXECUTOR_POOL;
+      binlog = builder.binlog;
+      callTracerFactory = builder.callTracerFactory;
+    }
   }
 }

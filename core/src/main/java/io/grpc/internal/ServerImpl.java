@@ -626,8 +626,7 @@ public final class ServerImpl extends io.grpc.Server implements Instrumented<Ser
    * Dispatches callbacks onto an application-provided executor and correctly propagates
    * exceptions.
    */
-  @VisibleForTesting
-  static final class JumpToApplicationThreadServerStreamListener implements ServerStreamListener {
+  public static final class JumpToApplicationThreadServerStreamListener implements ServerStreamListener {
     private final Executor callExecutor;
     private final Executor cancelExecutor;
     private final Context.CancellableContext context;
@@ -653,8 +652,7 @@ public final class ServerImpl extends io.grpc.Server implements Instrumented<Ser
       return listener;
     }
 
-    @VisibleForTesting
-    void setListener(ServerStreamListener listener) {
+    public void setListener(ServerStreamListener listener) {
       Preconditions.checkNotNull(listener, "listener must not be null");
       Preconditions.checkState(this.listener == null, "Listener already set");
       this.listener = listener;

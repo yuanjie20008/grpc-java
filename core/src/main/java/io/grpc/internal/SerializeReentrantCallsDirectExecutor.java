@@ -31,7 +31,7 @@ import java.util.logging.Logger;
  *
  * <p>This class is not thread-safe.
  */
-class SerializeReentrantCallsDirectExecutor implements Executor {
+public class SerializeReentrantCallsDirectExecutor implements Executor {
 
   private static final Logger log =
       Logger.getLogger(SerializeReentrantCallsDirectExecutor.class.getName());

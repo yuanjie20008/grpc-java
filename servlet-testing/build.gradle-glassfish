@@ -1,0 +1,89 @@
+description = "gRPC: Servlet"
+buildscript {
+    repositories {
+        maven { // The google mirror is less flaky than mavenCentral()
+            url "https://maven-central.storage-download.googleapis.com/repos/central/data/"
+        }
+
+    }
+    dependencies {
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.3'
+    }
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8 // Java EE 8 or above to support Servlet 4.0 (with Http/2)
+
+def protobufVersion = '3.5.1'
+def protocVersion = '3.5.1-1'
+
+apply plugin: 'war'
+
+
+sourceSets {
+    main {
+        java {
+            srcDirs "${rootDir}/interop-testing/src/generated/main/java"
+            srcDirs "${rootDir}/interop-testing/src/generated/main/grpc"
+            srcDirs "${rootDir}/interop-testing/src/main/java"
+            fileTree("${rootDir}/interop-testing/src/main/java").exclude("io/grpc/testing/integration/Util.java", "io/grpc/testing/integration/TestServiceImpl.java").each {exclude it.toString() - "${rootDir}/interop-testing/src/main/java"}
+            exclude 'io/grpc/servlet/helloworld/SpringBooter.java'
+        }
+
+        resources {
+            srcDirs "${rootDir}/interop-testing/src/main/resources"
+        }
+    }
+}
+
+dependencies {
+    compile project(':grpc-core')
+    compile project(':grpc-stub')
+    compile project(':grpc-protobuf')
+    compile project(':grpc-servlet')
+
+    compile ("com.google.protobuf:protobuf-java-util:${protobufVersion}") {
+        exclude group: 'com.google.guava', module: 'guava'
+    }
+
+    providedCompile group: 'javax.servlet', name: 'javax.servlet-api', version: '4.0.1'
+    providedCompile group: 'javax.enterprise', name: 'cdi-api', version: '2.0'
+    providedCompile "javax.annotation:javax.annotation-api:1.2"
+
+    providedCompile "junit:junit:4.12"
+    testCompile "org.mockito:mockito-core:1.9.5"
+}
+
+checkstyle {
+    ignoreFailures = true
+}
+
+compileJava {
+    options.compilerArgs += [
+            "-XepAllErrorsAsWarnings"
+    ]
+}
+
+apply plugin: 'idea'
+
+apply plugin: 'com.google.protobuf'
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${protocVersion}"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.13.1"
+        }
+    }
+    generateProtoTasks {
+        all()*.plugins {
+            grpc {}
+        }
+    }
+}
+
+
+
+apply plugin: 'project-report'
+

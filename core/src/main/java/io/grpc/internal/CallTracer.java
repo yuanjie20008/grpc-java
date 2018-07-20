@@ -24,7 +24,7 @@ import io.grpc.internal.Channelz.ServerStats;
 /**
  * A collection of call stats for channelz.
  */
-final class CallTracer {
+public final class CallTracer {
   private final TimeProvider timeProvider;
   private final LongCounter callsStarted = LongCounterFactory.create();
   private final LongCounter callsSucceeded = LongCounterFactory.create();

@@ -1,0 +1,131 @@
+description = "gRPC: Servlet"
+buildscript {
+    ext {
+        springBootVersion = '2.0.3.RELEASE'
+    }
+    ext ['tomcat.version'] = '9.0.10'
+    ext ['undertow.version'] = '2.0.11.Final'
+    repositories {
+        maven { // The google mirror is less flaky than mavenCentral()
+            url "https://maven-central.storage-download.googleapis.com/repos/central/data/"
+        }
+
+    }
+    dependencies {
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.3'
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+    }
+}
+
+apply plugin: 'org.springframework.boot'
+apply plugin: 'io.spring.dependency-management'
+
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8 // Java EE 8 or above to support Servlet 4.0 (with Http/2)
+
+def protobufVersion = '3.5.1'
+def protocVersion = '3.5.1-1'
+
+configurations {
+//    compile.exclude module: "spring-boot-starter-tomcat"
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs "${rootDir}/interop-testing/src/generated/main/java"
+            srcDirs "${rootDir}/interop-testing/src/generated/main/grpc"
+            srcDirs "${rootDir}/interop-testing/src/main/java"
+            fileTree("${rootDir}/interop-testing/src/main/java").exclude("io/grpc/testing/integration/Util.java", "io/grpc/testing/integration/TestServiceImpl.java").each {exclude it.toString() - "${rootDir}/interop-testing/src/main/java"}
+        }
+
+        resources {
+            srcDirs "${rootDir}/interop-testing/src/main/resources"
+        }
+    }
+}
+
+dependencies {
+    compile project(':grpc-core')
+    compile project(':grpc-netty')
+    compile project(':grpc-stub')
+    compile project(':grpc-protobuf')
+    compile project(':grpc-servlet')
+    compile group: 'javax.servlet', name: 'javax.servlet-api', version: '4.0.1'
+    // compile("org.springframework.boot:spring-boot-starter-actuator") // for tracing
+    compile('org.springframework.boot:spring-boot-starter-web')
+
+//    compile("org.springframework.boot:spring-boot-starter-undertow")
+
+//    compile("org.springframework.boot:spring-boot-starter-jetty")
+//    compile 'org.eclipse.jetty:jetty-alpn-conscrypt-server'
+//    compile 'org.eclipse.jetty.http2:http2-server'
+
+    compile group: 'javax.enterprise', name: 'cdi-api', version: '2.0'
+    compileOnly "javax.annotation:javax.annotation-api:1.2"
+    compileOnly "junit:junit:4.12"
+
+    compile "com.google.guava:guava:20.0"
+
+    compile "com.google.protobuf:protobuf-java-util:${protobufVersion}"
+
+    testCompile "junit:junit:4.12"
+    testCompile "org.mockito:mockito-core:1.9.5"
+}
+
+checkstyle {
+    ignoreFailures = true
+}
+
+compileJava {
+    options.compilerArgs += [
+            "-XepAllErrorsAsWarnings"
+    ]
+}
+
+bootRun {
+    jvmArgs += [
+            "-Dserver.port=50051",
+            "-Dserver.http2.enabled=true",
+            "-Dmanagement.endpoints.web.exposure.include=httptrace",
+
+            "-Dserver.ssl.key-store=classpath:server1.jks",
+            "-Dserver.ssl.key-store-password=123456",
+            "-Dserver.ssl.key-password=123456",
+
+            // tcnative lib path if using tomcat
+            "-Djava.library.path=/usr/local/google/home/zdapeng/apps/lib",
+    ]
+}
+
+apply plugin: 'com.google.protobuf'
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${protocVersion}"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.13.1"
+        }
+    }
+    generateProtoTasks {
+        all()*.plugins {
+            grpc {}
+        }
+    }
+}
+
+// Inform IDEs like IntelliJ IDEA, Eclipse or NetBeans about the generated code.
+sourceSets {
+    main {
+        java {
+            srcDirs 'build/generated/source/proto/main/grpc'
+            srcDirs 'build/generated/source/proto/main/java'
+        }
+    }
+}
+
+// Generate IntelliJ IDEA's .idea & .iml project files
+apply plugin: 'idea'
+
