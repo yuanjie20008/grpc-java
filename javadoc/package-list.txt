@@ -1,3 +1,7 @@
+---
+permalink: /javadoc/package-list/
+---
+
 io.grpc
 io.grpc.auth
 io.grpc.inprocess
