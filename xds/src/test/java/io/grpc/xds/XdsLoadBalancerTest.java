@@ -56,7 +56,6 @@ import io.grpc.internal.testing.StreamRecorder;
 import io.grpc.stub.StreamObserver;
 import io.grpc.testing.GrpcCleanupRule;
 import io.grpc.xds.XdsLbState.SubchannelStore;
-import io.grpc.xds.XdsLbState.SubchannelStoreImpl;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -167,8 +166,8 @@ public class XdsLoadBalancerTest {
         }
       });
 
-  private final SubchannelStore fakeSubchannelStore =
-      mock(SubchannelStore.class, delegatesTo(new SubchannelStoreImpl()));
+  @Mock
+  private SubchannelStore fakeSubchannelStore;
 
   private ManagedChannel oobChannel1;
   private ManagedChannel oobChannel2;
@@ -186,6 +185,7 @@ public class XdsLoadBalancerTest {
     doReturn(syncContext).when(helper).getSynchronizationContext();
     doReturn(fakeClock.getScheduledExecutorService()).when(helper).getScheduledExecutorService();
     doReturn(mock(ChannelLogger.class)).when(helper).getChannelLogger();
+    doReturn("fake_authority").when(helper).getAuthority();
 
     String serverName = InProcessServerBuilder.generateName();
 
@@ -553,6 +553,7 @@ public class XdsLoadBalancerTest {
             .build());
 
     serverResponseWriter.onNext(DiscoveryResponse.getDefaultInstance());
+
     doReturn(true).when(fakeSubchannelStore).hasReadyBackends();
     serverResponseWriter.onError(new Exception("fake error"));
 
@@ -576,7 +577,6 @@ public class XdsLoadBalancerTest {
       }
     };
 
-    doReturn(true).when(fakeSubchannelStore).hasSubchannel(subchannel);
     doReturn(false).when(fakeSubchannelStore).hasReadyBackends();
     lb.handleSubchannelState(subchannel, ConnectivityStateInfo.forTransientFailure(
         Status.UNAVAILABLE));
